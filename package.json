@@ -1,0 +1,23 @@
+{
+  "name": "rustdesk-helper",
+  "version": "1.0.0",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\" \"npm run dev --prefix admin\"",
+    "server": "npm run dev --prefix server",
+    "client": "npm run dev --prefix client",
+    "admin": "npm run dev --prefix admin"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "motion": "^12.38.0",
+    "zustand": "^5.0.12"
+  }
+}
