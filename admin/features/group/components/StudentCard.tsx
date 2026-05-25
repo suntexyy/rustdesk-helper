@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Student } from "../schema/schema";
 
 import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 export function StudentCard({
   student,
@@ -134,7 +135,7 @@ export function StudentCard({
                 onClick={() => setShowPass((p) => !p)}
                 className="text-xs text-zinc-500 underline underline-offset-2 hover:text-black"
               >
-                {showPass ? "hide" : "show"}
+                {showPass ? <EyeOff /> : <Eye />}
               </button>
 
               <button
