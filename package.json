@@ -14,7 +14,7 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.4"
   },
   "dependencies": {
     "motion": "^12.38.0",
