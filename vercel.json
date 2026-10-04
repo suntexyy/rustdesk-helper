@@ -16,22 +16,20 @@
   },
   "rewrites": [
     {
+      "source": "/admin",
+      "destination": { "service": "admin" }
+    },
+    {
       "source": "/admin/(.*)",
-      "destination": {
-        "service": "admin"
-      }
+      "destination": { "service": "admin" }
     },
     {
       "source": "/api/(.*)",
-      "destination": {
-        "service": "server"
-      }
+      "destination": { "service": "server" }
     },
     {
       "source": "/(.*)",
-      "destination": {
-        "service": "client"
-      }
+      "destination": { "service": "client" }
     }
   ]
 }
