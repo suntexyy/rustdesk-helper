@@ -28,7 +28,7 @@ export default function LoginPage() {
   const onSubmit = (data: LoginFormValues) => {
     mutate(data, {
       onSuccess: () => {
-        window.location.assign("/dashboard");
+        window.location.assign("/admin/dashboard");
       },
     });
   };
