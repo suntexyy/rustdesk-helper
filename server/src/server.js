@@ -1,8 +1,3 @@
-// const dotenv = require("dotenv");
-// const path = require("path");
-
-// ── MUST be first — before any other require that needs env vars ──
-// dotenv.config({ path: path.join(__dirname, "../.env") });
 require("dotenv").config();
 
 const express = require("express");
@@ -31,6 +26,9 @@ setServers(["1.1.1.1", "8.8.8.8"]);
 
 const app = express();
 const server = http.createServer(app);
+
+// True when running on Vercel (serverless), false on your computer
+const isVercel = !!process.env.VERCEL;
 
 const normalizeOrigin = (value) => {
   if (!value || typeof value !== "string") return "";
@@ -112,7 +110,7 @@ app.get("/", (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// Swagger
+// Swagger (does not need the database)
 // ─────────────────────────────────────────────
 app.use(
   "/api/docs",
@@ -128,19 +126,51 @@ app.get("/api/docs.json", (req, res) => {
   res.send(swaggerSpec);
 });
 
-// socket
+// ─────────────────────────────────────────────
+// Socket.IO — only when running on your own computer
+// (serverless functions can't keep socket connections open)
+// ─────────────────────────────────────────────
+if (!isVercel) {
+  const io = new Server(server, {
+    cors: {
+      origin: [
+        "http://localhost:3000", // client
+        "http://localhost:3001", // admin
+      ],
+      credentials: true,
+    },
+  });
 
-const io = new Server(server, {
-  cors: {
-    origin: [
-      "http://localhost:3000", // client
-      "http://localhost:3001", // admin
-    ],
-    credentials: true,
-  },
+  require("./socket")(io);
+}
+
+// ─────────────────────────────────────────────
+// Database: connect once per instance, before any route runs
+// ─────────────────────────────────────────────
+let dbReady;
+
+const ensureDb = () => {
+  if (!dbReady) {
+    dbReady = (async () => {
+      await dbConnect();
+      await seedAdmin();
+    })().catch((err) => {
+      console.error("❌ Database init failed:", err.message);
+      dbReady = null; // allow a retry on the next request
+      throw err;
+    });
+  }
+  return dbReady;
+};
+
+app.use(async (req, res, next) => {
+  try {
+    await ensureDb();
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
-
-require("./socket")(io);
 
 // ─────────────────────────────────────────────
 // Routes
@@ -163,7 +193,7 @@ app.use((req, res, next) => {
 app.use(errorHandler);
 
 // ─────────────────────────────────────────────
-// Cron: purge expired sessions daily at midnight
+// Cron: purge expired sessions daily at midnight (local only)
 // ─────────────────────────────────────────────
 const scheduleCronJobs = () => {
   cron.schedule("0 0 * * *", async () => {
@@ -178,27 +208,23 @@ const scheduleCronJobs = () => {
 };
 
 // ─────────────────────────────────────────────
-// Start Server
+// Start Server — only when running on your own computer
 // ─────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 
-const startServer = async () => {
-  try {
-    await dbConnect();
-    await seedAdmin();
-
-    scheduleCronJobs();
-
-    server.listen(PORT, () => {
-      console.log(`🚀 Server running on http://localhost:${PORT}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+if (!isVercel) {
+  ensureDb()
+    .then(() => {
+      scheduleCronJobs();
+      server.listen(PORT, () => {
+        console.log(`🚀 Server running on http://localhost:${PORT}`);
+        console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+      });
+    })
+    .catch((error) => {
+      console.error("❌ Failed to start server:", error.message);
+      process.exit(1);
     });
-  } catch (error) {
-    console.error("❌ Failed to start server:", error.message);
-    process.exit(1);
-  }
-};
-
-startServer();
+}
 
 module.exports = app;
