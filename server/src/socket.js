@@ -1,8 +1,66 @@
+const HelpRequest = require("../modules/dashboard/helpRequest.model");
+const StudentRecord = require("../modules/dashboard/studentRecord.model");
 const groupRooms = {};
 
+const safely = (fn) =>
+  Promise.resolve()
+    .then(fn)
+    .catch((e) => console.error("Dashboard DB error:", e.message));
+
 module.exports = (io) => {
+  const buildSnapshot = () => {
+    let online = 0;
+    let waiting = 0;
+    let ongoing = 0;
+    const groups = [];
+    const students = [];
+
+    for (const [code, room] of Object.entries(groupRooms)) {
+      const list = Object.values(room);
+      if (list.length === 0) continue; // skip empty groups
+
+      const w = list.filter((s) => s.status === "waiting").length;
+      const o = list.filter((s) => s.status === "ongoing").length;
+
+      online += list.length;
+      waiting += w;
+      ongoing += o;
+      groups.push({ code, students: list.length, waiting: w, ongoing: o });
+
+      for (const s of list) {
+        students.push({
+          socketId: s.socketId,
+          name: s.name,
+          status: s.status,
+          groupCode: code,
+          joinedAt: s.joinedAt,
+        });
+      }
+    }
+
+    return {
+      online,
+      waiting,
+      ongoing,
+      activeGroups: groups.length,
+      groups,
+      students,
+      updatedAt: Date.now(),
+    };
+  };
+
+  // send the summary to every admin who has the dashboard open
+  const broadcastDashboard = () =>
+    io.to("admins").emit("dashboard_update", buildSnapshot());
+
   io.on("connection", (socket) => {
     console.log("🔌 Connected:", socket.id);
+
+    // admin opens the dashboard overview page
+    socket.on("admin_join_dashboard", () => {
+      socket.join("admins");
+      socket.emit("dashboard_update", buildSnapshot());
+    });
 
     // ─────────────────────────────────────────
     // STUDENT: joins a group room
@@ -27,12 +85,32 @@ module.exports = (io) => {
         joinedAt: new Date(),
       };
 
+      // ➕ remember this student (unique by RustDesk ID)
+      const rid = String(student.rustdeskId || "").replace(/\s+/g, "");
+      if (rid) {
+        safely(() =>
+          StudentRecord.updateOne(
+            { rustdeskId: rid },
+            {
+              $set: {
+                name: student.name,
+                lastGroupCode: groupCode,
+                lastSeenAt: new Date(),
+              },
+              $setOnInsert: { firstSeenAt: new Date() },
+            },
+            { upsert: true },
+          ),
+        );
+      }
+
       console.log(`👤 ${student.name} joined group: ${groupCode}`);
 
       // Broadcast updated list to everyone in room (including admin)
       io.to(groupCode).emit("room_update", {
         students: Object.values(groupRooms[groupCode]),
       });
+      broadcastDashboard();
     });
 
     // ─────────────────────────────────────────
@@ -71,6 +149,7 @@ module.exports = (io) => {
       io.to(groupCode).emit("room_update", {
         students: Object.values(groupRooms[groupCode]),
       });
+      broadcastDashboard();
     });
 
     // ─────────────────────────────────────────
@@ -81,15 +160,28 @@ module.exports = (io) => {
       const { groupCode } = data;
       if (!groupCode || !groupRooms[groupCode]?.[socket.id]) return;
 
-      groupRooms[groupCode][socket.id].status = "waiting";
+      const me = groupRooms[groupCode][socket.id];
+      const wasWaiting = me.status === "waiting";
+      me.status = "waiting";
 
-      console.log(
-        `🆘 Help requested by ${groupRooms[groupCode][socket.id].name}`,
-      );
+      // ➕ save the request (but not twice if they click again)
+      if (!wasWaiting) {
+        safely(async () => {
+          const doc = await HelpRequest.create({
+            groupCode,
+            studentName: me.name,
+            status: "waiting",
+          });
+          me.requestId = String(doc._id);
+        });
+      }
+
+      console.log(`🆘 Help requested by ${me.name}`);
 
       io.to(groupCode).emit("room_update", {
         students: Object.values(groupRooms[groupCode]),
       });
+      broadcastDashboard();
     });
 
     // ─────────────────────────────────────────
@@ -100,7 +192,26 @@ module.exports = (io) => {
       const { groupCode, studentSocketId } = data;
       if (!groupCode || !groupRooms[groupCode]?.[studentSocketId]) return;
 
-      groupRooms[groupCode][studentSocketId].status = "ongoing";
+      const st = groupRooms[groupCode][studentSocketId];
+      st.status = "ongoing";
+
+      // ➕ update (or create) the saved request
+      safely(async () => {
+        if (st.requestId) {
+          await HelpRequest.findByIdAndUpdate(st.requestId, {
+            status: "ongoing",
+            startedAt: new Date(),
+          });
+        } else {
+          const doc = await HelpRequest.create({
+            groupCode,
+            studentName: st.name,
+            status: "ongoing",
+            startedAt: new Date(),
+          });
+          st.requestId = String(doc._id);
+        }
+      });
 
       // Tell that specific student their session is starting
       io.to(studentSocketId).emit("help_started");
@@ -109,10 +220,9 @@ module.exports = (io) => {
       io.to(groupCode).emit("room_update", {
         students: Object.values(groupRooms[groupCode]),
       });
+      broadcastDashboard();
 
-      console.log(
-        `▶️  Help started for ${groupRooms[groupCode][studentSocketId].name}`,
-      );
+      console.log(`▶️  Help started for ${st.name}`);
     });
 
     // ─────────────────────────────────────────
@@ -123,7 +233,19 @@ module.exports = (io) => {
       const { groupCode, studentSocketId } = data;
       if (!groupCode || !groupRooms[groupCode]?.[studentSocketId]) return;
 
-      groupRooms[groupCode][studentSocketId].status = "idle";
+      const st = groupRooms[groupCode][studentSocketId];
+      st.status = "idle";
+
+      // ➕ mark the saved request as completed
+      safely(async () => {
+        if (st.requestId) {
+          await HelpRequest.findByIdAndUpdate(st.requestId, {
+            status: "completed",
+            completedAt: new Date(),
+          });
+          delete st.requestId;
+        }
+      });
 
       // Tell the student the session is done
       io.to(studentSocketId).emit("help_completed");
@@ -132,10 +254,9 @@ module.exports = (io) => {
       io.to(groupCode).emit("room_update", {
         students: Object.values(groupRooms[groupCode]),
       });
+      broadcastDashboard();
 
-      console.log(
-        `✅ Help completed for ${groupRooms[groupCode][studentSocketId].name}`,
-      );
+      console.log(`✅ Help completed for ${st.name}`);
     });
 
     // ─────────────────────────────────────────
@@ -148,7 +269,19 @@ module.exports = (io) => {
       if (isAdmin || !groupCode) return;
 
       if (groupRooms[groupCode]?.[socket.id]) {
-        const name = groupRooms[groupCode][socket.id].name;
+        const gone = groupRooms[groupCode][socket.id];
+        const name = gone.name;
+
+        // ➕ a student who leaves mid-request is marked cancelled
+        if (gone.requestId && gone.status !== "idle") {
+          safely(() =>
+            HelpRequest.findByIdAndUpdate(gone.requestId, {
+              status: "cancelled",
+              completedAt: new Date(),
+            }),
+          );
+        }
+
         delete groupRooms[groupCode][socket.id];
 
         console.log(`👋 ${name} disconnected from group ${groupCode}`);
@@ -156,6 +289,7 @@ module.exports = (io) => {
         io.to(groupCode).emit("room_update", {
           students: Object.values(groupRooms[groupCode]),
         });
+        broadcastDashboard();
       }
     });
   });

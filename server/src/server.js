@@ -19,6 +19,7 @@ const seedAdmin = require("./scripts/seedAdmin");
 const authRoutes = require("./modules/auth/auth.routes");
 const contactRoutes = require("./modules/contact/contact.routes");
 const categoryRoutes = require("./modules/category/category.routes");
+const dashboardRoutes = require("./modules/dashboard/dashboard.routes");
 
 // DNS resolution fix for environments with DNS issues (e.g. some Docker setups)
 const { setServers } = require("node:dns/promises");
@@ -176,6 +177,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/category", categoryRoutes);
 app.use("/api/groups", groupRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // ─────────────────────────────────────────────
 // 404 Handler — unmatched routes
