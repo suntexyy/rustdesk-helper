@@ -1,5 +1,5 @@
-const HelpRequest = require("../modules/dashboard/helpRequest.model");
-const StudentRecord = require("../modules/dashboard/studentRecord.model");
+const HelpRequest = require("./modules/dashboard/helpRequest.model");
+const StudentRecord = require("./modules/dashboard/studentRecord.model");
 const groupRooms = {};
 
 const safely = (fn) =>
