@@ -31,11 +31,14 @@ export default function GroupCreate() {
 
   const mutation = useMutation({
     mutationFn: async (data: FormValues) => {
-      const res = await fetch("http://localhost:5000/api/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
+      const res = await fetch(
+        "https://rustdesk-helper-kf61.vercel.app/api/groups",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        },
+      );
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || "Failed to create group");
       return json;

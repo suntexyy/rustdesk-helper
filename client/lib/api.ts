@@ -1,4 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+export const API_URL =
+  process.env.NEXT_PUBLIC_rustdesk_helper_API_URL ??
+  "https://rustdesk-helper-kf61.vercel.app";
 
 export const checkGroup = async (code: string) => {
   const res = await fetch(`${API_URL}/api/groups/check`, {

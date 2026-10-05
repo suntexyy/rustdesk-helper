@@ -1,6 +1,6 @@
 import { io } from "socket.io-client";
 
-export const socket = io("http://localhost:5000", {
+export const socket = io("https://rustdesk-helper-kf61.vercel.app", {
   withCredentials: true,
   autoConnect: false,
 });

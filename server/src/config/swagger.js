@@ -19,7 +19,7 @@ const options = {
         description: "Development server",
       },
       {
-        url: "https://api.rustdesk-helper.ge",
+        url: "https://rustdesk-helper-kf61.vercel.app",
         description: "Production server",
       },
     ],

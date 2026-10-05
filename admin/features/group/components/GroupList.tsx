@@ -21,14 +21,16 @@ export default function GroupList() {
   const { data, isLoading } = useQuery({
     queryKey: ["groups"],
     queryFn: async () => {
-      const res = await fetch("http://localhost:5000/api/groups");
+      const res = await fetch(
+        "https://rustdesk-helper-kf61.vercel.app/api/groups",
+      );
       return res.json();
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await fetch(`http://localhost:5000/api/groups/${id}`, {
+      await fetch(`https://rustdesk-helper-kf61.vercel.app/api/groups/${id}`, {
         method: "DELETE",
         credentials: "include",
       });
