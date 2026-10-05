@@ -3,7 +3,6 @@
 import { socket } from "@/lib/socket";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { toast } from "react-hot-toast/headless";
 
 export default function ProfilePage() {
   const [name, setName] = useState("");
@@ -18,7 +17,7 @@ export default function ProfilePage() {
     if (saved) {
       const data = JSON.parse(saved);
       setName(data.name || "");
-      setRustdeskId(data.rustdeskId || "");
+      setRustdeskId((data.rustdeskId || "").replace(/\s+/g, ""));
       setPassword(data.password || "");
       setAvatar(data.avatar || null);
     }
@@ -65,7 +64,12 @@ export default function ProfilePage() {
       return;
     }
 
-    const data = { name, rustdeskId, password, avatar };
+    const data = {
+      name,
+      rustdeskId: rustdeskId.replace(/\s+/g, ""),
+      password,
+      avatar,
+    };
     localStorage.setItem("student", JSON.stringify(data));
 
     // Don't emit socket here — group page handles join_group on mount
@@ -136,7 +140,7 @@ export default function ProfilePage() {
           {
             label: "RustDesk ID",
             value: rustdeskId,
-            set: setRustdeskId,
+            set: (v: string) => setRustdeskId(v.replace(/\s+/g, "")),
             placeholder: "RustDesk ID",
             type: "text",
           },

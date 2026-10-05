@@ -31,20 +31,24 @@ export default function AdminGroupPage() {
   }, [code]);
 
   const handleConnect = async (student: Student) => {
+    const id = String(student.rustdeskId).replace(/\s+/g, "");
+
+    // Copy the password first; if it fails, still continue
     try {
       if (student.password) {
         await navigator.clipboard.writeText(student.password);
       }
-
-      window.open(`rustdesk://${student.rustdeskId}`);
-
-      socket.emit("help_started", {
-        groupCode: code,
-        studentSocketId: student.socketId,
-      });
     } catch (err) {
-      console.log(err);
+      console.warn("Clipboard failed", err);
     }
+
+    // Use the cleaned id here
+    window.location.href = `rustdesk://${id}`;
+
+    socket.emit("help_started", {
+      groupCode: code,
+      studentSocketId: student.socketId,
+    });
   };
 
   const handleComplete = (student: Student) => {
