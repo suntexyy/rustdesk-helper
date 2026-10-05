@@ -133,10 +133,7 @@ app.get("/api/docs.json", (req, res) => {
 if (!isVercel) {
   const io = new Server(server, {
     cors: {
-      origin: [
-        "http://localhost:3000", // client
-        "http://localhost:3001", // admin
-      ],
+      origin: [...allowedOrigins], // CLIENT_URL, ADMIN_URL and localhost
       credentials: true,
     },
   });
