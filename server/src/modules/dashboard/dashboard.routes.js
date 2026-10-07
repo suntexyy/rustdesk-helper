@@ -6,6 +6,19 @@ const { getStats } = require("./dashboard.controller");
 
 // 🔒 every route in this file is admin only
 router.use(protectAdmin);
+const jwt = require("jsonwebtoken");
+
+router.get("/socket-token", (req, res) => {
+  const secret = process.env.SOCKET_JWT_SECRET;
+  if (!secret) {
+    return res
+      .status(500)
+      .json({ success: false, message: "Socket auth is not configured" });
+  }
+  const token = jwt.sign({ role: "admin" }, secret, { expiresIn: "5m" });
+  res.set("Cache-Control", "no-store");
+  res.json({ success: true, data: { token } });
+});
 
 /**
  * @swagger

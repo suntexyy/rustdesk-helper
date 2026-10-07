@@ -1,11 +1,76 @@
+const jwt = require("jsonwebtoken");
+const Group = require("./modules/group/group.model");
+const { hashKey, safeEqualHex } = require("./modules/group/group.keys");
 const HelpRequest = require("./modules/dashboard/helpRequest.model");
 const StudentRecord = require("./modules/dashboard/studentRecord.model");
+
 const groupRooms = {};
 
 const safely = (fn) =>
   Promise.resolve()
     .then(fn)
-    .catch((e) => console.error("Dashboard DB error:", e.message));
+    .catch((e) => console.error("DB error:", e.message));
+
+const clean = (v, max) =>
+  String(v ?? "")
+    .trim()
+    .slice(0, max);
+
+// only allow the fields a student is supposed to send
+const pickStudent = (s) => {
+  const src = s && typeof s === "object" ? s : {};
+  const out = {};
+  if (src.name !== undefined) out.name = clean(src.name, 60);
+  if (src.rustdeskId !== undefined)
+    out.rustdeskId = clean(src.rustdeskId, 30).replace(/\s+/g, "");
+  if (src.password !== undefined) out.password = clean(src.password, 100);
+  if (src.avatar !== undefined) {
+    out.avatar =
+      typeof src.avatar === "string" &&
+      src.avatar.startsWith("data:image/") &&
+      src.avatar.length <= 30000
+        ? src.avatar
+        : undefined;
+  }
+  return out;
+};
+
+// what students see (no RustDesk ID, no password)
+const toPublic = ({ socketId, name, avatar, status }) => ({
+  socketId,
+  name,
+  avatar,
+  status,
+});
+
+// what staff see (everything except internal ids)
+const toStaff = ({ requestId, ...rest }) => rest;
+
+// returns "admin", "mentor" or null
+const verifyStaff = async ({ groupCode, ownerKey, adminToken }) => {
+  if (adminToken && process.env.SOCKET_JWT_SECRET) {
+    try {
+      const payload = jwt.verify(adminToken, process.env.SOCKET_JWT_SECRET);
+      if (payload.role === "admin") return "admin";
+    } catch (_) {
+      // invalid or expired token: fall through
+    }
+  }
+
+  if (ownerKey && groupCode) {
+    const group = await Group.findOne({ code: groupCode }).select(
+      "+ownerKeyHash",
+    );
+    if (
+      group?.ownerKeyHash &&
+      safeEqualHex(hashKey(ownerKey), group.ownerKeyHash)
+    ) {
+      return "mentor";
+    }
+  }
+
+  return null;
+};
 
 module.exports = (io) => {
   const buildSnapshot = () => {
@@ -17,7 +82,7 @@ module.exports = (io) => {
 
     for (const [code, room] of Object.entries(groupRooms)) {
       const list = Object.values(room);
-      if (list.length === 0) continue; // skip empty groups
+      if (list.length === 0) continue;
 
       const w = list.filter((s) => s.status === "waiting").length;
       const o = list.filter((s) => s.status === "ongoing").length;
@@ -49,51 +114,64 @@ module.exports = (io) => {
     };
   };
 
-  // send the summary to every admin who has the dashboard open
   const broadcastDashboard = () =>
     io.to("admins").emit("dashboard_update", buildSnapshot());
 
+  // students get the trimmed list, staff get the full list
+  const emitRoom = (groupCode) => {
+    const list = Object.values(groupRooms[groupCode] || {});
+    io.to(groupCode).emit("room_update", { students: list.map(toPublic) });
+    io.to(`staff:${groupCode}`).emit("room_update", {
+      students: list.map(toStaff),
+    });
+  };
+
   io.on("connection", (socket) => {
     console.log("🔌 Connected:", socket.id);
+    socket.data = { staffGroups: new Set() };
 
-    // admin opens the dashboard overview page
-    socket.on("admin_join_dashboard", () => {
-      socket.join("admins");
-      socket.emit("dashboard_update", buildSnapshot());
+    // ADMIN: opens the dashboard overview page
+    socket.on("admin_join_dashboard", async (data) => {
+      try {
+        const role = await verifyStaff({ adminToken: data?.adminToken });
+        if (role !== "admin") {
+          return socket.emit("staff_denied", { scope: "dashboard" });
+        }
+        socket.join("admins");
+        socket.emit("dashboard_update", buildSnapshot());
+      } catch (err) {
+        console.error("admin_join_dashboard failed:", err.message);
+      }
     });
 
-    // ─────────────────────────────────────────
     // STUDENT: joins a group room
-    // ─────────────────────────────────────────
-    socket.on("join_group", (data) => {
-      console.log("JOIN_GROUP EVENT RECEIVED");
-      console.log(data);
+    socket.on("join_group", async (data) => {
+      try {
+        if (!data) return;
+        const groupCode = clean(data.groupCode, 20);
+        const info = pickStudent(data.student);
+        if (!groupCode || !info.name || !info.rustdeskId) return;
 
-      if (!data) return;
-      const { groupCode, student } = data;
-      if (!groupCode || !student) return;
+        const exists = await Group.exists({ code: groupCode });
+        if (!exists) return socket.emit("join_denied", { groupCode });
 
-      socket.join(groupCode);
-      socket.data = { groupCode, student };
+        socket.join(groupCode);
+        socket.data.groupCode = groupCode;
 
-      // Add/update student in the in-memory store
-      if (!groupRooms[groupCode]) groupRooms[groupCode] = {};
-      groupRooms[groupCode][socket.id] = {
-        ...student,
-        socketId: socket.id,
-        status: "idle",
-        joinedAt: new Date(),
-      };
+        if (!groupRooms[groupCode]) groupRooms[groupCode] = {};
+        groupRooms[groupCode][socket.id] = {
+          ...info,
+          socketId: socket.id,
+          status: "idle",
+          joinedAt: new Date(),
+        };
 
-      // ➕ remember this student (unique by RustDesk ID)
-      const rid = String(student.rustdeskId || "").replace(/\s+/g, "");
-      if (rid) {
         safely(() =>
           StudentRecord.updateOne(
-            { rustdeskId: rid },
+            { rustdeskId: info.rustdeskId },
             {
               $set: {
-                name: student.name,
+                name: info.name,
                 lastGroupCode: groupCode,
                 lastSeenAt: new Date(),
               },
@@ -102,69 +180,68 @@ module.exports = (io) => {
             { upsert: true },
           ),
         );
+
+        console.log(`👤 ${info.name} joined group: ${groupCode}`);
+
+        emitRoom(groupCode);
+        broadcastDashboard();
+      } catch (err) {
+        console.error("join_group failed:", err.message);
       }
-
-      console.log(`👤 ${student.name} joined group: ${groupCode}`);
-
-      // Broadcast updated list to everyone in room (including admin)
-      io.to(groupCode).emit("room_update", {
-        students: Object.values(groupRooms[groupCode]),
-      });
-      broadcastDashboard();
     });
 
-    // ─────────────────────────────────────────
-    // ADMIN: joins a group room to monitor it
-    // ─────────────────────────────────────────
-    socket.on("admin_join_group", (data) => {
-      if (!data) return;
-      const { groupCode } = data;
-      if (!groupCode) return;
-      console.log("ADMIN ROOM:", groupCode);
+    // STAFF (admin or mentor): monitors a group
+    socket.on("admin_join_group", async (data) => {
+      try {
+        if (!data) return;
+        const groupCode = clean(data.groupCode, 20);
+        if (!groupCode) return;
 
-      socket.join(groupCode);
-      socket.data = { groupCode, isAdmin: true };
+        const role = await verifyStaff({
+          groupCode,
+          ownerKey: data.ownerKey,
+          adminToken: data.adminToken,
+        });
 
-      console.log(`🛡️  Admin monitoring group: ${groupCode}`);
+        if (!role) return socket.emit("staff_denied", { groupCode });
 
-      // Send current snapshot immediately so admin sees existing students
-      socket.emit("room_update", {
-        students: Object.values(groupRooms[groupCode] || {}),
-      });
+        // staff only join the staff room, so they never get the trimmed list
+        socket.join(`staff:${groupCode}`);
+        socket.data.staffGroups.add(groupCode);
+
+        console.log(`🛡️  ${role} monitoring group: ${groupCode}`);
+
+        socket.emit("room_update", {
+          students: Object.values(groupRooms[groupCode] || {}).map(toStaff),
+        });
+      } catch (err) {
+        console.error("admin_join_group failed:", err.message);
+      }
     });
 
-    // ─────────────────────────────────────────
-    // STUDENT: updates their info (name/id/pass)
-    // ─────────────────────────────────────────
+    // STUDENT: updates their info
     socket.on("student_updated", (data) => {
       if (!data) return;
-      const { groupCode, student } = data;
-      if (!groupCode || !groupRooms[groupCode]?.[socket.id]) return;
+      const groupCode = clean(data.groupCode, 20);
+      const me = groupRooms[groupCode]?.[socket.id];
+      if (!me) return;
 
-      groupRooms[groupCode][socket.id] = {
-        ...groupRooms[groupCode][socket.id],
-        ...student,
-      };
+      Object.assign(me, pickStudent(data.student));
 
-      io.to(groupCode).emit("room_update", {
-        students: Object.values(groupRooms[groupCode]),
-      });
+      emitRoom(groupCode);
       broadcastDashboard();
     });
 
-    // ─────────────────────────────────────────
     // STUDENT: requests help
-    // ─────────────────────────────────────────
     socket.on("help_requested", (data) => {
       if (!data) return;
-      const { groupCode } = data;
-      if (!groupCode || !groupRooms[groupCode]?.[socket.id]) return;
+      const groupCode = clean(data.groupCode, 20);
+      const me = groupRooms[groupCode]?.[socket.id];
+      if (!me) return;
 
-      const me = groupRooms[groupCode][socket.id];
       const wasWaiting = me.status === "waiting";
       me.status = "waiting";
 
-      // ➕ save the request (but not twice if they click again)
       if (!wasWaiting) {
         safely(async () => {
           const doc = await HelpRequest.create({
@@ -178,24 +255,22 @@ module.exports = (io) => {
 
       console.log(`🆘 Help requested by ${me.name}`);
 
-      io.to(groupCode).emit("room_update", {
-        students: Object.values(groupRooms[groupCode]),
-      });
+      emitRoom(groupCode);
       broadcastDashboard();
     });
 
-    // ─────────────────────────────────────────
-    // ADMIN: starts helping a student
-    // ─────────────────────────────────────────
+    // STAFF: starts helping a student
     socket.on("help_started", (data) => {
       if (!data) return;
-      const { groupCode, studentSocketId } = data;
-      if (!groupCode || !groupRooms[groupCode]?.[studentSocketId]) return;
+      const groupCode = clean(data.groupCode, 20);
+      const studentSocketId = clean(data.studentSocketId, 60);
 
-      const st = groupRooms[groupCode][studentSocketId];
+      if (!socket.data.staffGroups.has(groupCode)) return;
+      const st = groupRooms[groupCode]?.[studentSocketId];
+      if (!st) return;
+
       st.status = "ongoing";
 
-      // ➕ update (or create) the saved request
       safely(async () => {
         if (st.requestId) {
           await HelpRequest.findByIdAndUpdate(st.requestId, {
@@ -213,30 +288,26 @@ module.exports = (io) => {
         }
       });
 
-      // Tell that specific student their session is starting
       io.to(studentSocketId).emit("help_started");
 
-      // Update the full room list
-      io.to(groupCode).emit("room_update", {
-        students: Object.values(groupRooms[groupCode]),
-      });
+      emitRoom(groupCode);
       broadcastDashboard();
 
       console.log(`▶️  Help started for ${st.name}`);
     });
 
-    // ─────────────────────────────────────────
-    // ADMIN: completes the help session
-    // ─────────────────────────────────────────
+    // STAFF: completes the help session
     socket.on("help_completed", (data) => {
       if (!data) return;
-      const { groupCode, studentSocketId } = data;
-      if (!groupCode || !groupRooms[groupCode]?.[studentSocketId]) return;
+      const groupCode = clean(data.groupCode, 20);
+      const studentSocketId = clean(data.studentSocketId, 60);
 
-      const st = groupRooms[groupCode][studentSocketId];
+      if (!socket.data.staffGroups.has(groupCode)) return;
+      const st = groupRooms[groupCode]?.[studentSocketId];
+      if (!st) return;
+
       st.status = "idle";
 
-      // ➕ mark the saved request as completed
       safely(async () => {
         if (st.requestId) {
           await HelpRequest.findByIdAndUpdate(st.requestId, {
@@ -247,50 +318,38 @@ module.exports = (io) => {
         }
       });
 
-      // Tell the student the session is done
       io.to(studentSocketId).emit("help_completed");
 
-      // Update the full room list
-      io.to(groupCode).emit("room_update", {
-        students: Object.values(groupRooms[groupCode]),
-      });
+      emitRoom(groupCode);
       broadcastDashboard();
 
       console.log(`✅ Help completed for ${st.name}`);
     });
 
-    // ─────────────────────────────────────────
     // DISCONNECT: remove student from store
-    // ─────────────────────────────────────────
     socket.on("disconnect", () => {
-      const { groupCode, isAdmin } = socket.data || {};
+      // staff sockets never set groupCode, so this only runs for students
+      const { groupCode } = socket.data || {};
+      if (!groupCode) return;
 
-      // Admins don't have entries in the store
-      if (isAdmin || !groupCode) return;
+      const gone = groupRooms[groupCode]?.[socket.id];
+      if (!gone) return;
 
-      if (groupRooms[groupCode]?.[socket.id]) {
-        const gone = groupRooms[groupCode][socket.id];
-        const name = gone.name;
-
-        // ➕ a student who leaves mid-request is marked cancelled
-        if (gone.requestId && gone.status !== "idle") {
-          safely(() =>
-            HelpRequest.findByIdAndUpdate(gone.requestId, {
-              status: "cancelled",
-              completedAt: new Date(),
-            }),
-          );
-        }
-
-        delete groupRooms[groupCode][socket.id];
-
-        console.log(`👋 ${name} disconnected from group ${groupCode}`);
-
-        io.to(groupCode).emit("room_update", {
-          students: Object.values(groupRooms[groupCode]),
-        });
-        broadcastDashboard();
+      if (gone.requestId && gone.status !== "idle") {
+        safely(() =>
+          HelpRequest.findByIdAndUpdate(gone.requestId, {
+            status: "cancelled",
+            completedAt: new Date(),
+          }),
+        );
       }
+
+      delete groupRooms[groupCode][socket.id];
+
+      console.log(`👋 ${gone.name} disconnected from group ${groupCode}`);
+
+      emitRoom(groupCode);
+      broadcastDashboard();
     });
   });
 };

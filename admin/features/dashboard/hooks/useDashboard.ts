@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query"; // same package your other hooks use
 import { socket } from "@/lib/socket";
-import { fetchDashboardStats } from "../dashboardApi";
+import { fetchDashboardStats, getSocketToken } from "../dashboardApi";
 import type { LiveSnapshot } from "../dashboardTypes";
 
 export function useDashboard() {
@@ -12,9 +12,14 @@ export function useDashboard() {
 
   useEffect(() => {
     // runs on connect AND on every reconnect (the server forgets us after a restart)
-    const join = () => {
+    const join = async () => {
       setConnected(true);
-      socket.emit("admin_join_dashboard");
+      try {
+        const adminToken = await getSocketToken();
+        socket.emit("admin_join_dashboard", { adminToken });
+      } catch (err) {
+        console.warn("Could not get socket token", err);
+      }
     };
     const onDisconnect = () => setConnected(false);
     const onUpdate = (snapshot: LiveSnapshot) => setLive(snapshot);

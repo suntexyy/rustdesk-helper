@@ -25,3 +25,9 @@ export const fetchDashboardStats = async (): Promise<DashboardStats> => {
   const res = await safeFetch<StatsResponse>(`/api/dashboard/stats?${qs}`);
   return res.data;
 };
+export const getSocketToken = async (): Promise<string> => {
+  const res = await safeFetch<{ success: boolean; data: { token: string } }>(
+    "/api/dashboard/socket-token",
+  );
+  return res.data.token;
+};

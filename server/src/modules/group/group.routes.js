@@ -1,15 +1,49 @@
 const express = require("express");
 const router = express.Router();
 const Group = require("./group.model");
-const { createGroup, getGroups } = require("./group.controller");
+const { protectAdmin } = require("../auth/auth.middleware");
+const {
+  createGroup,
+  getGroups,
+  createMentorGroup,
+  deleteMentorGroup,
+} = require("./group.controller");
 
-// GET ALL GROUPS
+//
+// PUBLIC ROUTES (students and mentors)
+//
+
+// CHECK GROUP CODE (returns only what a student needs)
+router.post("/check", async (req, res) => {
+  try {
+    const code = String(req.body?.code || "");
+    const group = await Group.findOne({ code }).select("name code");
+
+    if (!group) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Group not found" });
+    }
+
+    return res.json({ success: true, message: "Group exists", data: group });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// MENTOR: create / delete their own group
+router.post("/mentor", createMentorGroup);
+router.delete("/mentor/me", deleteMentorGroup);
+
+//
+// 🔒 ADMIN ROUTES
+//
+router.use(protectAdmin);
+
 router.get("/", getGroups);
-
-// CREATE GROUP
 router.post("/", createGroup);
 
-// DELETE GROUP
 router.delete("/:id", async (req, res) => {
   try {
     const group = await Group.findByIdAndDelete(req.params.id);
@@ -21,39 +55,6 @@ router.delete("/:id", async (req, res) => {
     res.json({ success: true, message: "Group deleted" });
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
-// CHECK GROUP CODE
-router.post("/check", async (req, res) => {
-  try {
-    console.log(req.body);
-
-    const { code } = req.body;
-
-    const group = await Group.findOne({ code });
-
-    console.log(group);
-
-    if (!group) {
-      return res.status(404).json({
-        success: false,
-        message: "Group not found",
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: "Group exists",
-      data: group,
-    });
-  } catch (err) {
-    console.log(err);
-
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
   }
 });
 

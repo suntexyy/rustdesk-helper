@@ -5,6 +5,7 @@ import { socket } from "@/lib/socket";
 import { useParams } from "next/navigation";
 import { Student } from "@/features/group/schema/schema";
 import { StudentCard } from "@/features/group/components/StudentCard";
+import { getSocketToken } from "@/features/dashboard/dashboardApi";
 
 export default function AdminGroupPage() {
   const params = useParams();
@@ -16,16 +17,26 @@ export default function AdminGroupPage() {
   useEffect(() => {
     if (!code) return;
 
-    socket.emit("admin_join_group", {
-      groupCode: code,
-    });
+    const join = async () => {
+      try {
+        const adminToken = await getSocketToken();
+        socket.emit("admin_join_group", { groupCode: code, adminToken });
+      } catch (err) {
+        console.warn("Could not get socket token", err);
+      }
+    };
 
     const onRoomUpdate = ({ students }: { students: Student[] }) =>
       setStudents(students);
 
+    socket.on("connect", join);
     socket.on("room_update", onRoomUpdate);
 
+    if (socket.connected) join();
+    else socket.connect();
+
     return () => {
+      socket.off("connect", join);
       socket.off("room_update", onRoomUpdate);
     };
   }, [code]);
