@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createMentorGroup } from "../api/mentorAPI";
+import { createMentorGroup } from "../api/mentorApi";
 import type { MentorSession } from "../types/mentorTypes";
 
 export function CreateGroupForm({

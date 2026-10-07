@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { socket } from "@/lib/socket";
 import type { MentorSession } from "../types/mentorTypes";
 import { clearSession, loadSession, saveSession } from "../lib/mentorStorage";
-import { deleteMentorGroup } from "../api/mentorAPI";
+import { deleteMentorGroup } from "../api/mentorApi";
 import { CreateGroupForm } from "./CreateGroupForm";
 import { MentorPanel } from "./MentorPanel";
 
