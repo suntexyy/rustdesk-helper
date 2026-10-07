@@ -34,7 +34,7 @@ export function MentorPage() {
     socket.disconnect();
     clearSession();
     setSession(null);
-    setNotice("Your group no longer exists. You can create a new one.");
+    setNotice("Your group no longer exists. Create a new one to continue.");
   }, []);
 
   const handleLogout = async () => {
@@ -55,15 +55,10 @@ export function MentorPage() {
     }
   };
 
-  if (!ready) return null;
+  if (!ready) return <div className="min-h-screen bg-[#F4F6FA]" />;
 
   if (!session) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-4">
-        {notice && <p className="text-sm text-amber-700">{notice}</p>}
-        <CreateGroupForm onCreated={handleCreated} />
-      </div>
-    );
+    return <CreateGroupForm onCreated={handleCreated} notice={notice} />;
   }
 
   return (

@@ -1,13 +1,32 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import { display } from "@/lib/fonts";
 import { createMentorGroup } from "../api/mentorApi";
 import type { MentorSession } from "../types/mentorTypes";
 
+const STEPS = [
+  {
+    title: "Name your group",
+    text: "Pick something your students will recognize.",
+  },
+  {
+    title: "Share the code",
+    text: "You get a six-digit code to give to your class.",
+  },
+  {
+    title: "Help whoever asks",
+    text: "Students who need help move to the top of your list.",
+  },
+];
+
 export function CreateGroupForm({
   onCreated,
+  notice,
 }: {
   onCreated: (session: MentorSession) => void;
+  notice?: string;
 }) {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -22,47 +41,97 @@ export function CreateGroupForm({
     try {
       onCreated(await createMentorGroup(name.trim()));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Check your connection and try again",
+      );
       setLoading(false);
     }
   };
 
   return (
-    <form
-      onSubmit={submit}
-      className="flex w-full max-w-[420px] flex-col gap-6 rounded-2xl p-10 shadow-[0_4px_24px_rgba(0,0,0,0.08)]"
+    <div
+      className={`${display.className} grid min-h-screen lg:grid-cols-[5fr_6fr]`}
     >
-      <div className="text-center">
-        <h1 className="mb-1 text-[22px] font-bold text-[#09090b]">
-          Create your group
-        </h1>
-        <p className="text-[14px] text-[#71717a]">
-          You get a code to share with your students
-        </p>
-      </div>
+      <aside className="flex flex-col justify-between gap-14 bg-[#0B2545] p-8 text-white sm:p-12 lg:p-16">
+        <Link
+          href="/"
+          className="w-fit text-sm font-medium text-[#C9D6EA] underline-offset-4 hover:text-white hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+        >
+          Back to start
+        </Link>
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[13px] font-bold text-[#09090b]">
-          Group name
-        </label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Frontend class"
-          maxLength={60}
-          className="h-[44px] rounded-[8px] border-[1.5px] border-[#e4e4e7] pl-2 text-[14px] outline-none"
-        />
-      </div>
+        <div>
+          <h1 className="text-5xl font-extrabold leading-[0.95] tracking-tight sm:text-6xl">
+            Start your group.
+          </h1>
+          <p className="mt-5 max-w-sm text-lg leading-relaxed text-[#C9D6EA]">
+            Students join with your code. You see who is online and who needs
+            help.
+          </p>
+        </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+        <ol className="flex flex-col gap-5">
+          {STEPS.map((step, i) => (
+            <li key={step.title} className="flex gap-4">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-[#35527E] text-sm font-semibold">
+                {i + 1}
+              </span>
+              <div>
+                <p className="font-semibold">{step.title}</p>
+                <p className="text-sm text-[#C9D6EA]">{step.text}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </aside>
 
-      <button
-        type="submit"
-        disabled={!name.trim() || loading}
-        className="h-11 rounded-lg bg-[#18181b] text-[15px] font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {loading ? "Creating…" : "Create group"}
-      </button>
-    </form>
+      <section className="flex items-center justify-center bg-[#F4F6FA] p-8 sm:p-12">
+        <form onSubmit={submit} className="w-full max-w-md text-[#0B2545]">
+          {notice && (
+            <p
+              role="status"
+              className="mb-6 rounded-xl bg-[#FFF3C4] px-4 py-3 text-sm font-medium text-[#5C4200]"
+            >
+              {notice}
+            </p>
+          )}
+
+          <label htmlFor="group-name" className="text-sm font-semibold">
+            Group name
+          </label>
+          <input
+            id="group-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Frontend class"
+            maxLength={60}
+            aria-describedby="group-name-hint"
+            className="mt-2 h-14 w-full rounded-xl border-2 border-[#DDE3EC] bg-white px-4 text-lg outline-none transition focus-visible:border-[#0B2545] focus-visible:ring-4 focus-visible:ring-[#0B2545]/15"
+          />
+          <p id="group-name-hint" className="mt-2 text-sm text-[#5B6B82]">
+            Students see this name when they join.
+          </p>
+
+          {error && (
+            <p
+              role="alert"
+              className="mt-5 rounded-xl bg-[#FDECEA] px-4 py-3 text-sm font-medium text-[#912018]"
+            >
+              Couldn&apos;t create your group. {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={!name.trim() || loading}
+            className="mt-6 h-14 w-full rounded-full bg-[#0B2545] text-base font-semibold text-white transition-colors hover:bg-[#13365F] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0B2545] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {loading ? "Creating group…" : "Create group"}
+          </button>
+        </form>
+      </section>
+    </div>
   );
 }
