@@ -55,7 +55,7 @@ export function MentorPage() {
     }
   };
 
-  if (!ready) return <div className="min-h-screen bg-[#2547FF]" />;
+  if (!ready) return <div className="min-h-screen bg-white" />;
 
   if (!session) {
     return <CreateGroupForm onCreated={handleCreated} notice={notice} />;

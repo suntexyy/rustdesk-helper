@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Group = require("./group.model");
 const { protectAdmin } = require("../auth/auth.middleware");
+const { notifyGroupClosed } = require("./group.notify");
 const {
   createGroup,
   getGroups,
@@ -52,6 +53,9 @@ router.delete("/:id", async (req, res) => {
         .status(404)
         .json({ success: false, message: "Group not found" });
     }
+
+    await notifyGroupClosed(group.code); // ➕ NEW
+
     res.json({ success: true, message: "Group deleted" });
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error" });

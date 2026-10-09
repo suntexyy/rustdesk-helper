@@ -3,21 +3,21 @@ import type { StaffStudent } from "../types/mentorTypes";
 const STATUS = {
   idle: {
     label: "Online",
-    dot: "bg-[#1FCB8D]",
-    text: "text-[#0B7A55]",
-    row: "",
+    dot: "bg-[#34E3A5]",
+    text: "text-[#34E3A5]",
+    row: "hover:bg-white/5",
   },
   waiting: {
     label: "Needs help",
     dot: "bg-[#FFC53D]",
-    text: "text-[#8A5A00]",
-    row: "bg-[#FFF9E6]",
+    text: "text-[#FFC53D]",
+    row: "bg-[#FFC53D]/10 ring-1 ring-inset ring-[#FFC53D]/40",
   },
   ongoing: {
     label: "In session",
-    dot: "bg-[#2547FF]",
-    text: "text-[#2547FF]",
-    row: "",
+    dot: "bg-[#6D8BFF]",
+    text: "text-[#9DB1FF]",
+    row: "bg-[#4C6BFF]/10 ring-1 ring-inset ring-[#4C6BFF]/30",
   },
 } as const;
 
@@ -29,8 +29,12 @@ const formatId = (id: string) => {
     : clean;
 };
 
+// a steady color for each student, taken from their name
+const hueFor = (name: string) =>
+  Array.from(name).reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 0);
+
 const focus =
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2547FF]";
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white";
 
 export function StudentRow({
   student,
@@ -46,10 +50,11 @@ export function StudentRow({
   onComplete: () => void;
 }) {
   const s = STATUS[student.status];
+  const hue = hueFor(student.name);
 
   return (
     <li
-      className={`flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4 ${s.row}`}
+      className={`flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl px-4 py-3.5 transition-colors motion-reduce:transition-none ${s.row}`}
     >
       <span className="relative flex size-12 shrink-0">
         {student.avatar ? (
@@ -61,7 +66,13 @@ export function StudentRow({
             className="size-12 rounded-full object-cover"
           />
         ) : (
-          <span className="flex size-12 items-center justify-center rounded-full bg-[#E8ECFF] text-lg font-bold text-[#2547FF]">
+          <span
+            className="flex size-12 items-center justify-center rounded-full text-lg font-bold"
+            style={{
+              backgroundColor: `hsl(${hue} 85% 70%)`,
+              color: `hsl(${hue} 60% 18%)`,
+            }}
+          >
             {student.name.charAt(0).toUpperCase()}
           </span>
         )}
@@ -74,26 +85,27 @@ export function StudentRow({
             <span className="absolute inset-0 animate-ping rounded-full bg-[#FFC53D] motion-reduce:hidden" />
           )}
           <span
-            className={`relative size-4 rounded-full border-2 border-white ${s.dot}`}
+            className={`relative size-4 rounded-full ring-2 ring-[#0D1342] ${s.dot}`}
           />
         </span>
       </span>
 
       <div className="min-w-0 flex-1 basis-40">
-        <p className="flex items-baseline gap-2">
-          <span className="truncate font-semibold">{student.name}</span>
-          <span className={`shrink-0 text-sm font-medium ${s.text}`}>
-            {s.label}
+        <p className="truncate font-semibold text-white">{student.name}</p>
+        <p className="flex flex-wrap items-baseline gap-x-3 text-sm">
+          <span className={`font-medium ${s.text}`}>{s.label}</span>
+          <span className="select-all tabular-nums text-[#AAB4DB]">
+            {formatId(student.rustdeskId)}
           </span>
-        </p>
-        <p className="select-all text-sm tabular-nums text-[#5A6285]">
-          {formatId(student.rustdeskId)}
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         {passwordCopied && (
-          <span role="status" className="text-sm font-medium text-[#0B7A55]">
+          <span
+            role="status"
+            className="mr-1 text-sm font-medium text-[#34E3A5]"
+          >
             Password copied
           </span>
         )}
@@ -103,14 +115,14 @@ export function StudentRow({
             <button
               onClick={onReconnect}
               aria-label={`Reopen RustDesk for ${student.name}`}
-              className={`rounded-full px-3 py-2 text-sm font-semibold text-[#2547FF] hover:underline ${focus}`}
+              className={`rounded-full px-3 py-2 text-sm font-semibold text-[#AAB4DB] transition-colors hover:text-white ${focus}`}
             >
               Reopen
             </button>
             <button
               onClick={onComplete}
               aria-label={`Finish session with ${student.name}`}
-              className={`rounded-full bg-[#0E1330] px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#1B2250] ${focus}`}
+              className={`rounded-full bg-[#34E3A5] px-5 py-2.5 text-sm font-bold text-[#04261A] transition-transform hover:scale-[1.04] motion-reduce:transition-none ${focus}`}
             >
               Finish
             </button>
@@ -119,7 +131,7 @@ export function StudentRow({
           <button
             onClick={onConnect}
             aria-label={`Connect to ${student.name}`}
-            className={`rounded-full bg-[#2547FF] px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#1B38E0] ${focus}`}
+            className={`rounded-full bg-white px-5 py-2.5 text-sm font-bold text-[#1B2FD6] transition-transform hover:scale-[1.04] motion-reduce:transition-none ${focus}`}
           >
             Connect
           </button>

@@ -6,6 +6,8 @@ const StudentRecord = require("./modules/dashboard/studentRecord.model");
 
 const groupRooms = {};
 
+let closeGroupImpl = () => {};
+
 const safely = (fn) =>
   Promise.resolve()
     .then(fn)
@@ -124,6 +126,33 @@ module.exports = (io) => {
     io.to(`staff:${groupCode}`).emit("room_update", {
       students: list.map(toStaff),
     });
+  };
+  // a group was deleted: send everyone out of it and clean up
+  closeGroupImpl = (groupCode) => {
+    const code = clean(groupCode, 20);
+    if (!code) return;
+
+    // students who were waiting or in a session: mark those requests cancelled
+    for (const s of Object.values(groupRooms[code] || {})) {
+      if (s.requestId && s.status !== "idle") {
+        safely(() =>
+          HelpRequest.findByIdAndUpdate(s.requestId, {
+            status: "cancelled",
+            completedAt: new Date(),
+          }),
+        );
+      }
+    }
+
+    io.to(code).emit("group_closed", { groupCode: code });
+    io.to(`staff:${code}`).emit("staff_denied", { groupCode: code });
+    io.in(code).socketsLeave(code);
+    io.in(`staff:${code}`).socketsLeave(`staff:${code}`);
+
+    delete groupRooms[code];
+    broadcastDashboard();
+
+    console.log(`🗑️  Group ${code} was deleted, everyone was sent out`);
   };
 
   io.on("connection", (socket) => {
@@ -353,3 +382,5 @@ module.exports = (io) => {
     });
   });
 };
+
+module.exports.closeGroup = (groupCode) => closeGroupImpl(groupCode);

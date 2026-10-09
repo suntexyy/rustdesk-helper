@@ -1,5 +1,6 @@
 const Group = require("./group.model");
 const { hashKey, newOwnerKey, newGroupCode } = require("./group.keys");
+const { notifyGroupClosed } = require("./group.notify");
 
 // CREATE GROUP (admin)
 exports.createGroup = async (req, res, next) => {
@@ -78,12 +79,10 @@ exports.createMentorGroup = async (req, res, next) => {
       }
     }
 
-    res
-      .status(503)
-      .json({
-        success: false,
-        message: "Could not generate a code, try again",
-      });
+    res.status(503).json({
+      success: false,
+      message: "Could not generate a code, try again",
+    });
   } catch (err) {
     next(err);
   }
@@ -112,6 +111,9 @@ exports.deleteMentorGroup = async (req, res, next) => {
         .json({ success: false, message: "Group not found" });
     }
 
+    await notifyGroupClosed(group.code);
+
+    res.json({ success: true, message: "Group deleted" });
     res.json({ success: true, message: "Group deleted" });
   } catch (err) {
     next(err);

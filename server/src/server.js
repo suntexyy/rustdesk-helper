@@ -14,7 +14,8 @@ const dbConnect = require("./config/dbConnect");
 const errorHandler = require("./middlewares/errorHandler");
 const AppError = require("./utils/AppError");
 const seedAdmin = require("./scripts/seedAdmin");
-
+const jwt = require("jsonwebtoken");
+const socketServer = require("./socket");
 // ── Route imports ──
 const authRoutes = require("./modules/auth/auth.routes");
 const contactRoutes = require("./modules/contact/contact.routes");
@@ -139,13 +140,28 @@ if (!isVercel) {
     },
   });
 
-  require("./socket")(io);
+  socketServer(io);
 }
 
 // ─────────────────────────────────────────────
 // Database: connect once per instance, before any route runs
 // ─────────────────────────────────────────────
 let dbReady;
+
+app.post("/internal/group-closed", (req, res) => {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+
+  try {
+    const payload = jwt.verify(token, process.env.SOCKET_JWT_SECRET);
+    if (payload.role !== "server") throw new Error("wrong role");
+  } catch {
+    return res.status(401).json({ success: false });
+  }
+
+  socketServer.closeGroup(req.body?.code);
+  res.json({ success: true });
+});
 
 const ensureDb = () => {
   if (!dbReady) {
