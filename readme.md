@@ -1,1065 +1,297 @@
-# 🖥️ RustDesk x Academy Support Portal
+# 🖥️ RustDesk Helper
 
-> A real-time support platform that allows academy mentors to remotely assist students through **RustDesk** — without requiring students to create an account.
+**Remote help for classrooms. Students ask, mentors connect.**
 
-The **RustDesk x Academy Support Portal** is a lightweight support system designed for academies and educational environments where students may need quick technical assistance from mentors.
+![Next.js](https://img.shields.io/badge/Next.js-000000?logo=nextdotjs&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-0F172A?logo=tailwindcss&logoColor=38BDF8)
+![Express](https://img.shields.io/badge/Express-000000?logo=express&logoColor=white)
+![Socket.IO](https://img.shields.io/badge/Socket.IO-010101?logo=socketdotio&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-47A248?logo=mongodb&logoColor=white)
+![Vercel](https://img.shields.io/badge/Vercel-000000?logo=vercel&logoColor=white)
+![Render](https://img.shields.io/badge/Render-46E3B7?logo=render&logoColor=black)
 
-Students can join a group, provide their RustDesk connection information, and request help with a single click. Mentors can monitor students in real time, receive help requests, start support sessions, and mark them as completed.
+[**Live demo**](https://rustdesk-helper-kf61.vercel.app) · [How it works](#how-it-works) · [Run it locally](#run-it-locally) · [Deploy](#deployment)
+
+</div>
+
+> The live demo's socket server sleeps when nobody is using it (free hosting), so the first connection after a break can take up to a minute.
 
 ---
+
+## ❓ What is it?
+
+rustdesk-helper is a small web app for classes and workshops where people help each other over [RustDesk](https://rustdesk.com), an open-source remote desktop tool.
+
+Students join a group with a code and raise a hand when they are stuck. The mentor sees a live list, with the students who need help at the top, and connects to a student's screen with one click.
+
+No accounts are needed for students or mentors.
+
+<p align="center">
+  <img src="docs/screenshots/Landing.png" width="30%" alt="Landing Page" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/Mentor.png" width="32%" alt="Mentor Panel" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/Student.png" width="30.5%" alt="Student Panel" />
+</p>
+## How it works
+
+There are two roles. Everyone starts at the home page.
+
+### Students
+
+1. Choose **I'm a student**.
+2. Enter the 6-character **group code** from your mentor.
+3. Fill in your **profile**: name, RustDesk ID, RustDesk password, and an optional photo. It is saved in your browser, so you only do it once.
+4. Join the group. When you need help, press the help button. You move to the top of the mentor's list.
+5. The mentor connects through RustDesk. When they finish, your status goes back to normal.
+
+### Mentors
+
+1. Choose **I'm a mentor** and give your group a name. You get a six-digit **group code**.
+2. Share the code, or press **Copy invite** to copy a ready-to-send message with the link.
+3. Students appear live. Anyone who needs help is shown first, with a pulsing dot. You can turn on a soft **sound alert**, and the browser tab title shows how many students are waiting.
+4. Press **Connect**. The student's RustDesk password is copied and RustDesk opens on their ID. Use **Reopen** if it didn't launch, and **Finish** when you are done.
+5. **Delete group and log out** removes your group, and any student still inside is sent back to the code page.
+
+A mentor can have one group at a time. There is no sign-up: your browser holds a secret key that proves the group is yours.
 
 ## ✨ Features
 
-### 👨‍🎓 Student
+- Live student list that updates without refreshing (Socket.IO)
+- Help queue with priority: needs help, then in session, then online
+- One-click remote connect through the `rustdesk://` link, with the password copied for you
+- Group codes for students and one-group-per-mentor ownership with no accounts
+- Groups deleted by a mentor immediately send their students out
+- Responsive and keyboard friendly, with reduced-motion support
 
-- Join an academy group using a unique group code
-- No account or authentication required
-- Edit personal information at any time
-- Save:
-  - Full Name
-  - RustDesk ID
-  - RustDesk Password
+## 🏗️ Architecture
 
-- See real-time connection status
-- Request help from a mentor
-- Receive real-time status updates when a mentor starts or finishes a session
+```mermaid
+flowchart LR
+  B["Browser<br/>student or mentor"]
 
-### 🧑‍🏫 Mentor
+  subgraph V["Vercel - one project, three services"]
+    C["client<br/>Next.js"]
+    S["server<br/>Express REST API"]
+  end
 
-- Create and manage a group
-- Each mentor can create **one group**
-- Receive student help requests in real time
-- See currently connected students
-- View:
-  - Student name
-  - RustDesk ID
-  - RustDesk Password
-  - Current status
+  R["Render<br/>Express + Socket.IO<br/>always on"]
+  M[("MongoDB Atlas")]
 
-- Start a support session
-- Mark a support session as completed
-- Monitor student online/offline status
-
-### ⚡ Real-Time Communication
-
-The application uses **Socket.IO / WebSockets** to keep students and mentors synchronized.
-
-Examples:
-
-```text
-Student requests help
-        ↓
-help_requested
-        ↓
-Mentor receives notification
-        ↓
-Mentor starts session
-        ↓
-help_started
-        ↓
-Student UI changes to "Ongoing"
-        ↓
-Mentor finishes session
-        ↓
-help_completed
-        ↓
-Student can request help again
+  B -->|pages| C
+  B -->|"REST API"| S
+  B <-->|"live events"| R
+  S --> M
+  R --> M
+  S -. "group deleted" .-> R
 ```
 
----
+**Why two hosts for the server?** Vercel runs the API as serverless functions, which start per request and cannot keep a connection open. That is perfect for normal API calls, but Socket.IO needs a connection that stays up. So the same Express code also runs on Render as a normal always-on process, and the browser connects to it for live events. A small `isVercel` flag decides what each copy does: Vercel serves REST only, Render serves REST and sockets.
 
-# 🏗️ Architecture
+Vercel's **Services** feature lets `client` and `server` live in one monorepo and one project, with rewrites choosing which service answers a path.
 
-The project is divided into three main parts:
+### The help flow
 
-```text
-┌──────────────────────┐
-│       Student        │
-│      Next.js App     │
-└──────────┬───────────┘
-           │
-           │ HTTPS / WSS
-           ▼
-┌──────────────────────┐
-│      Backend API     │
-│   Node.js / Express  │
-│      Socket.IO       │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│       Database       │
-│       MongoDB        │
-└──────────────────────┘
-           ▲
-           │
-           │ HTTPS / WSS
-           │
-┌──────────┴───────────┐
-│       Mentor         │
-│      Admin Panel     │
-└──────────────────────┘
+```mermaid
+sequenceDiagram
+  actor S as Student
+  participant R as Socket server
+  actor M as Mentor
+  participant DB as MongoDB
+
+  S->>R: join_group (code and profile)
+  R-->>S: room_update (names and status only)
+  R-->>M: room_update (full details)
+  S->>R: help_requested
+  R->>DB: save help request
+  R-->>M: student moves to "Needs help"
+  M->>R: help_started
+  Note over M: Browser opens rustdesk://ID<br/>and copies the password
+  M->>R: help_completed
+  R->>DB: mark request completed
 ```
 
-### Frontend
+## 🔒 Security Model
 
-Built with:
+The project has no user accounts for students and mentors, so access is built on secrets instead.
 
-- **Next.js**
-- **React**
-- **TypeScript**
-- **Tailwind CSS**
-- **Socket.IO Client**
-- Feature-based architecture
+| Concern                                             | How it is handled                                                                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Students must not see each other's RustDesk details | The server sends students a trimmed list (name, photo, status). Only staff sockets receive IDs and passwords.                                           |
+| Mentor identity without accounts                    | Creating a group returns a random 256-bit **owner key**. Only its SHA-256 hash is stored. The mentor's browser presents the key to prove ownership.     |
+| Admin identity on the socket server                 | The admin login cookie does not reach the other domain, so the API issues a 5-minute signed token that the socket server verifies with a shared secret. |
+| Admin-only REST routes                              | `protectAdmin` middleware (JWT in an HTTP cookie).                                                                                                      |
+| Deleting a group                                    | The Vercel API sends a signed server-to-server request to Render, which closes the rooms and sends students out.                                        |
+| Input from sockets                                  | Payloads are whitelisted and length-limited, so a client cannot inject fields into its own record.                                                      |
+| Browser protections                                 | Helmet, a CORS allowlist, and `timingSafeEqual` for key comparison.                                                                                     |
 
-### Backend
+## Tech stack
 
-The backend is responsible for:
+| Area      | Tools                                                                           |
+| --------- | ------------------------------------------------------------------------------- |
+| Front end | Next.js (App Router), React, Tailwind CSS, TanStack Query, react-hot-toast      |
+| Back end  | Node.js, Express 5, Socket.IO, Mongoose, Zod, JSON Web Tokens, bcryptjs, Helmet |
+| Database  | MongoDB Atlas                                                                   |
+| Hosting   | Vercel (client, admin, REST API) and Render (Socket.IO server)                  |
+|           |
 
-- API requests
-- Authentication
-- Group management
-- Student management
-- Mentor management
-- Session state
-- WebSocket communication
-- Real-time synchronization
+## 📁 Project Structure
 
-### Database
-
-MongoDB is used for persistent server-side data.
-
-### Local Storage
-
-Student profile/session information is stored locally in the browser.
-
-This allows students to refresh the page without losing their information.
-
----
-
-# 🔄 How It Works
-
-## 1. Role Selection
-
-When the application starts, the user chooses between:
-
-```text
-┌──────────────┐     ┌──────────────┐
-│   Student    │     │    Mentor    │
-└──────┬───────┘     └──────┬───────┘
-       │                    │
-       ▼                    ▼
-   Join Group           Create Group
-       │                    │
-       ▼                    ▼
-     Profile             Profile
-       │                    │
-       ▼                    ▼
-      Group             Dashboard
+```
+rustdesk-helper/
+├── client/                  Student and mentor site (Next.js)
+│   ├── app/                 Pages: home, student, profile, group, mentor
+│   ├── features/mentor/     Mentor pages, API calls and local storage
+│   └── lib/                 Socket client, fonts, helpers
+├── admin/                   Admin panel (Next.js, served under /admin)
+│   ├── app/dashboard/       Overview, groups, categories, contact
+│   └── features/            Feature-based folders (dashboard, group, ...)
+├── server/                  Express API and Socket.IO server
+│   └── src/
+│       ├── server.js        App setup, middleware, routes
+│       ├── socket.js        Live rooms, help requests, staff checks
+│       ├── modules/         auth, group, category, contact, dashboard
+│       ├── config/          Database connection, Swagger
+│       └── scripts/         Admin seeding
+└── vercel.json              Services and rewrites
 ```
 
----
+## Run it locally
 
-# 👨‍🎓 Student Flow
+**You need:** Node.js 20 or newer, and a MongoDB database (a free MongoDB Atlas cluster works).
 
-## Step 1 — Join a Group
-
-The student opens the website and enters a group code.
-
-Example:
-
-```text
-JS-101
-```
-
-The frontend sends the code to the backend to verify that the group exists.
-
-If the group is valid, the student can continue.
-
----
-
-## Step 2 — Create a Profile
-
-The student enters:
-
-```text
-Full Name
-RustDesk ID
-RustDesk Password
-```
-
-Example:
-
-```text
-Full Name: John Doe
-RustDesk ID: 123456789
-RustDesk Password: my-password
-```
-
-The information is saved locally in the browser.
-
-Example storage structure:
-
-```ts
-{
-  fullName: "John Doe",
-  rustDeskId: "123456789",
-  rustDeskPassword: "my-password",
-  groupCode: "JS-101",
-  sessionId: "..."
-}
-```
-
----
-
-## Step 3 — Enter the Group
-
-After completing the profile, the student enters the group dashboard.
-
-The student can see their current status:
-
-```text
-● Online
-```
-
-or:
-
-```text
-● Ongoing
-```
-
-or:
-
-```text
-● Offline
-```
-
----
-
-## Step 4 — Request Help
-
-When the student needs assistance, they press:
-
-```text
-Ask for Help
-```
-
-The frontend emits:
-
-```text
-help_requested
-```
-
-through Socket.IO.
-
-The mentor immediately receives the request.
-
----
-
-## Step 5 — Mentor Starts the Session
-
-The mentor sees the student under the help-request section.
-
-The mentor can view:
-
-```text
-John Doe
-
-RustDesk ID
-123456789
-
-RustDesk Password
-********
-
-[ Connect ]
-```
-
-When the mentor clicks **Connect**, the student's status changes to:
-
-```text
-Ongoing
-```
-
-The student receives:
-
-```text
-Your mentor is connecting to your computer...
-```
-
-The **Ask for Help** button becomes disabled so the student cannot create duplicate requests.
-
----
-
-## Step 6 — Session Completion
-
-When the mentor finishes helping the student, they click:
-
-```text
-Complete
-```
-
-The backend broadcasts:
-
-```text
-help_completed
-```
-
-The student's status returns to:
-
-```text
-Online
-```
-
-and the student can request help again.
-
----
-
-# 🧑‍🏫 Mentor Flow
-
-## Step 1 — Select Mentor
-
-From the initial role selection screen, choose:
-
-```text
-Mentor
-```
-
----
-
-## Step 2 — Create a Profile
-
-The mentor provides their profile information.
-
-Mentor information is also persisted locally so refreshing the browser does not immediately lose the current mentor session.
-
----
-
-## Step 3 — Create a Group
-
-A mentor can create **only one group**.
-
-For example:
-
-```text
-Group Name: JavaScript Beginners
-Group Code: JS-101
-```
-
-The backend generates or validates a unique group code.
-
-The mentor can then share:
-
-```text
-JS-101
-```
-
-with students.
-
----
-
-## Step 4 — Mentor Dashboard
-
-The mentor dashboard provides a real-time overview of the group.
-
-Example:
-
-```text
-JavaScript Beginners
-Code: JS-101
-
-Students
-────────────────────────────────────
-
-🟢 John Doe
-   RustDesk: 123456789
-   Status: Online
-
-🟠 Jane Smith
-   RustDesk: 987654321
-   Status: Needs Help
-
-🔵 Alex Brown
-   RustDesk: 555444333
-   Status: Ongoing
-```
-
----
-
-# ⚡ WebSocket Events
-
-Real-time synchronization is handled through Socket.IO.
-
-## `join_group`
-
-Triggered when a student joins a group.
-
-```text
-Student
-   ↓
-join_group
-   ↓
-Socket.IO Room
-   ↓
-Group
-```
-
-The student becomes part of the group's real-time room.
-
----
-
-## `student_updated`
-
-Triggered when a student changes their profile information.
-
-For example:
-
-```text
-RustDesk ID
-RustDesk Password
-Full Name
-```
-
-The mentor's dashboard updates without requiring a page refresh.
-
----
-
-## `help_requested`
-
-Triggered when a student clicks:
-
-```text
-Ask for Help
-```
-
-Flow:
-
-```text
-Student
-   ↓
-help_requested
-   ↓
-Group Room
-   ↓
-Mentor Dashboard
-```
-
----
-
-## `help_started`
-
-Triggered when the mentor starts helping the student.
-
-The student's interface changes from:
-
-```text
-Online
-```
-
-to:
-
-```text
-Ongoing
-```
-
----
-
-## `help_completed`
-
-Triggered when the mentor finishes the support session.
-
-The student returns to:
-
-```text
-Online
-```
-
-and can request help again.
-
----
-
-## `student_disconnected`
-
-Triggered when the student's WebSocket connection disappears.
-
-The mentor can then see the student as:
-
-```text
-Offline
-```
-
-or remove them from the active student list depending on the application's implementation.
-
----
-
-# 🔐 Authentication & Security
-
-Mentor/admin functionality is protected using authentication.
-
-The general architecture is:
-
-```text
-Mentor
-   ↓
-Login
-   ↓
-Backend
-   ↓
-JWT
-   ↓
-Protected API / WebSocket
-```
-
-Students do **not** need traditional account authentication.
-
-Instead, their temporary identity is maintained through:
-
-- `localStorage`
-- Session ID
-- Socket.IO connection
-
-### Important
-
-RustDesk credentials are sensitive information.
-
-The application should always use:
-
-```text
-HTTPS
-```
-
-for HTTP requests and:
-
-```text
-WSS
-```
-
-for WebSocket connections in production.
-
-Never expose sensitive credentials over unencrypted HTTP/WebSocket connections.
-
----
-
-# 🗄️ Local Storage
-
-The student experience intentionally uses browser `localStorage`.
-
-This allows information to survive page refreshes.
-
-For example:
-
-```text
-Browser
-   │
-   └── localStorage
-          ├── student profile
-          ├── group code
-          └── session information
-```
-
-### Clearing Data
-
-Students should be able to completely remove their local information using:
-
-```text
-Leave Group
-```
-
-or:
-
-```text
-Clear Data
-```
-
-This is especially important when using shared computers.
-
----
-
-# 🔗 RustDesk Integration
-
-The platform is designed to work alongside the RustDesk desktop application.
-
-The mentor receives the student's:
-
-```text
-RustDesk ID
-RustDesk Password
-```
-
-The preferred experience is:
-
-```text
-Connect
-   ↓
-Open RustDesk
-   ↓
-Connect to Student
-```
-
-Depending on the available RustDesk URI/deep-link capabilities, the application may either:
-
-1. Open RustDesk automatically with the student's ID, or
-2. Open/copy the necessary connection information so the mentor can enter it manually.
-
-The exact behavior depends on the RustDesk client and supported URI mechanisms.
-
----
-
-# 📁 Project Structure
-
-The frontend follows a **feature-based architecture**.
-
-A simplified structure looks like:
-
-```text
-src/
-│
-├── app/
-│   ├── page.tsx
-│   ├── student/
-│   ├── mentor/
-│   └── ...
-│
-├── features/
-│   ├── auth/
-│   ├── student/
-│   ├── mentor/
-│   ├── groups/
-│   ├── dashboard/
-│   └── ...
-│
-├── components/
-│   ├── ui/
-│   └── ...
-│
-├── lib/
-│   ├── api/
-│   ├── socket/
-│   └── ...
-│
-├── hooks/
-│
-├── types/
-│
-└── ...
-```
-
-The goal of the feature-based structure is to keep business logic separated instead of putting the entire application inside large components.
-
----
-
-# 🚀 Getting Started
-
-## Prerequisites
-
-Before running the project, make sure you have:
-
-- Node.js
-- npm / pnpm / yarn
-- MongoDB
-- RustDesk installed if you want to test remote support
-- The backend running
-- The frontend running
-
----
-
-## 1. Clone the Repository
+### 1. Install
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/<your-username>/rustdesk-helper.git
+cd rustdesk-helper
+
+cd server && npm install && cd ..
+cd client && npm install && cd ..
+cd admin  && npm install && cd ..
 ```
 
-Then:
+### 2. Configure the server
 
-```bash
-cd <project-directory>
-```
-
----
-
-## 2. Install Dependencies
-
-```bash
-npm install
-```
-
-or:
-
-```bash
-pnpm install
-```
-
----
-
-## 3. Configure Environment Variables
-
-Create:
-
-```text
-.env.local
-```
-
-and add the required environment variables.
-
-Example:
+Create `server/.env`:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:5000
-NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
+PORT=5000
+MONGO_URI=mongodb+srv://<user>:<password>@<cluster>/<database>
+CLIENT_URL=http://localhost:3000
+ADMIN_URL=http://localhost:3001
+SOCKET_JWT_SECRET=<a long random string>
+
+# Auth and the first admin account (use the names your code reads)
+JWT_SECRET=<a long random string>
 ```
 
-> Use the actual variables required by the project. Do not commit `.env.local` or any secret credentials to GitHub.
+<!-- TODO: replace JWT_SECRET, ADMIN_EMAIL and ADMIN_PASSWORD with the exact variable names read in server/src (search for process.env). -->
 
----
-
-# ▶️ Running the Project
-
-Start the development server:
+Generate a random secret with:
 
 ```bash
-npm run dev
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-The frontend should then be available at:
+The frontends need no `.env` file locally. They default to `http://localhost:5000`.
 
-```text
-http://localhost:3000
-```
+### 3. Start everything
 
-Start the backend separately according to its project configuration.
-
-For example:
+Use three terminals:
 
 ```bash
-npm run dev
+# Terminal 1: API and sockets on http://localhost:5000
+cd server && npm run dev
+
+# Terminal 2: student and mentor site on http://localhost:3000
+cd client && npm run dev
+
+# Terminal 3: admin panel on http://localhost:3001/admin
+cd admin && npm run dev -- -p 3001
 ```
 
-The exact command may differ depending on the backend setup.
-
----
-
-# 🧪 Testing the Application
-
-A simple way to test the entire system is to use two browser windows.
-
-### Window 1 — Mentor
-
-1. Open the application
-2. Select **Mentor**
-3. Create a mentor profile
-4. Create a group
-5. Copy the generated group code
-6. Open the mentor dashboard
-
-### Window 2 — Student
-
-1. Open the application
-2. Select **Student**
-3. Enter the group code
-4. Create a student profile
-5. Enter RustDesk information
-6. Join the group
-
-Now test:
-
-```text
-Student → Ask for Help
-             ↓
-Mentor → receives request
-             ↓
-Mentor → Connect
-             ↓
-Student → Ongoing
-             ↓
-Mentor → Complete
-             ↓
-Student → Online
-```
-
-No page refresh should be necessary during this process.
-
----
-
-# 🧭 Complete System Flow
-
-```text
-                    ┌───────────────┐
-                    │    Website    │
-                    └───────┬───────┘
-                            │
-                    ┌───────▼───────┐
-                    │ Role Selection│
-                    └───┬───────┬───┘
-                        │       │
-              ┌─────────┘       └─────────┐
-              ▼                           ▼
-        ┌───────────┐               ┌───────────┐
-        │  Student  │               │   Mentor  │
-        └─────┬─────┘               └─────┬─────┘
-              │                           │
-              ▼                           ▼
-        Enter Group Code            Create Profile
-              │                           │
-              ▼                           ▼
-        Create Profile                Create Group
-              │                           │
-              ▼                           ▼
-        Join Group                    Dashboard
-              │                           │
-              └──────────┬────────────────┘
-                         │
-                    WebSocket
-                         │
-                         ▼
-                  Real-Time Group
-                         │
-             ┌───────────┴───────────┐
-             │                       │
-             ▼                       ▼
-       Ask for Help              Mentor sees
-             │                   request
-             │                       │
-             └──────────► Connect ◄──┘
-                         │
-                         ▼
-                       Ongoing
-                         │
-                         ▼
-                      Complete
-                         │
-                         ▼
-                        Idle
-```
-
----
-
-# 🛠️ Tech Stack
-
-| Technology   | Purpose                     |
-| ------------ | --------------------------- |
-| Next.js      | Frontend application        |
-| React        | UI                          |
-| TypeScript   | Type safety                 |
-| Tailwind CSS | Styling                     |
-| Node.js      | Backend runtime             |
-| Express      | REST API                    |
-| Socket.IO    | Real-time communication     |
-| MongoDB      | Database                    |
-| JWT          | Mentor/Admin authentication |
-| localStorage | Student local persistence   |
-| RustDesk     | Remote desktop support      |
+The admin account is created on first start. To create it manually, run `npm run seed:admin` in `server`.
 
----
+### 4. Try the flow
 
-# 🎯 Project Goals
+1. Open `http://localhost:3000` and choose **I'm a mentor**. Create a group.
+2. In a private window, choose **I'm a student**, enter the code, fill in the profile (fake data is fine) and join.
+3. Press the help button as the student and watch the mentor's list react.
 
-The project was designed around three main principles:
+To test the real connection you need RustDesk installed on both computers.
 
-### 1. Simplicity
+🔌 API and Socket Reference
 
-Students shouldn't have to create an account or navigate through complicated screens just to receive technical help.
+<details>
+<summary><b>REST endpoints</b></summary>
 
-### 2. Real-Time Communication
+<br />
 
-Mentors should immediately know when a student needs help, while students should immediately know when a mentor starts or finishes a session.
+| Method and path                   | Access                                  | Purpose                                                             |
+| --------------------------------- | --------------------------------------- | ------------------------------------------------------------------- |
+| `POST /api/groups/check`          | Public                                  | Check that a group code exists                                      |
+| `POST /api/groups/mentor`         | Public                                  | Create a mentor's group (one per browser) and receive the owner key |
+| `DELETE /api/groups/mentor/me`    | Owner key (`Authorization: Bearer ...`) | Delete the mentor's own group                                       |
+| `GET /api/groups`                 | Admin                                   | List all groups                                                     |
+| `POST /api/groups`                | Admin                                   | Create a group                                                      |
+| `DELETE /api/groups/:id`          | Admin                                   | Delete any group                                                    |
+| `GET /api/dashboard/stats`        | Admin                                   | Totals, requests per day, recent help requests                      |
+| `GET /api/dashboard/socket-token` | Admin                                   | Short-lived token for the socket server                             |
+| `/api/auth`                       | Mixed                                   | Sign in, current user, sign out                                     |
+| `/api/category`, `/api/contact`   | Mixed                                   | Categories and contacts                                             |
+| `GET /api/docs`                   | Public                                  | Swagger UI                                                          |
 
-### 3. Efficient Support
+</details>
 
-A mentor should be able to go from:
+<details>
+<summary><b>Socket events</b></summary>
 
-```text
-Student needs help
-```
+<br />
 
-to:
+**Client to server**
 
-```text
-RustDesk connection
-```
+| Event                            | Sent by       | Purpose                                            |
+| -------------------------------- | ------------- | -------------------------------------------------- |
+| `join_group`                     | Student       | Join a group with a profile                        |
+| `student_updated`                | Student       | Update profile details                             |
+| `help_requested`                 | Student       | Ask for help                                       |
+| `admin_join_group`               | Mentor, admin | Watch a group (needs owner key or admin token)     |
+| `admin_join_dashboard`           | Admin         | Receive live dashboard numbers (needs admin token) |
+| `help_started`, `help_completed` | Mentor, admin | Start or finish helping a student                  |
 
-as quickly as possible.
+**Server to client**
 
----
+| Event                            | Sent to             | Purpose                                             |
+| -------------------------------- | ------------------- | --------------------------------------------------- |
+| `room_update`                    | Everyone in a group | Student list (trimmed for students, full for staff) |
+| `dashboard_update`               | Admins              | Live totals                                         |
+| `help_started`, `help_completed` | One student         | Their session changed                               |
+| `group_closed`                   | Students            | The group was deleted                               |
+| `join_denied`, `staff_denied`    | One socket          | Unknown group or failed staff check                 |
 
-# 🔒 Security Considerations
+</details>
 
-This project intentionally keeps the student onboarding process lightweight, but there are several security considerations.
+## ⚠️ Known Limitations
 
-### Never commit secrets
+This is a portfolio project, so a few trade-offs are deliberate:
 
-Do not commit:
+- **Mentors have no accounts.** The one-group limit relies on an ID kept in the browser, so clearing the browser's storage lets someone create another group.
+- **Group codes are not secret.** Six characters can be guessed, so anyone who finds a code can join as a student. Student details are hidden from other students, and only the group's mentor and admins see them.
+- **Live state lives in server memory.** If the socket server restarts or sleeps, students reconnect and reappear, but anything in progress is lost. Saved history (counts, recent requests) lives in MongoDB.
+- **RustDesk passwords are not stored in the database.** They stay in the student's browser and are sent to the group's mentor and admins over HTTPS and WSS.
+- **Free hosting sleeps.** The first connection after a long idle period is slow.
+- **Scheduled jobs.** `node-cron` only runs where a process stays alive (locally and on Render).
+- **History starts when the dashboard feature was added.** Earlier sessions were not saved.
 
-```text
-.env
-.env.local
-JWT secrets
-Database credentials
-API keys
-```
+## 🦺 Troubleshooting
 
-to GitHub.
+- **"Key mismatch" in RustDesk.** Both computers must use the same RustDesk server settings, including the **Key** (RustDesk → menu → Network).
+- **The Connect button does nothing.** Allow the browser to open RustDesk links when it asks, and make sure the regular (installed) RustDesk is on that computer, since portable builds may not register the `rustdesk://` link.
+- **The list stays empty or says "Reconnecting".** The socket server may be waking up. Wait up to a minute.
+- **A `localhost` address shows up in production.** The `NEXT_PUBLIC_` variables were missing at build time. Add them and redeploy.
 
-### Use HTTPS/WSS in production
+## 🛠️ Fixes
 
-Production communication should use:
-
-```text
-HTTPS
-WSS
-```
-
-rather than:
-
-```text
-HTTP
-WS
-```
-
-### Be careful with RustDesk passwords
-
-RustDesk passwords should be treated as sensitive credentials.
-
-The application should only expose them to authorized mentors and should avoid unnecessary persistence or logging.
-
-### Shared computers
-
-Because student information can be stored in `localStorage`, students should use:
-
-```text
-Leave Group
-```
-
-or:
-
-```text
-Clear Data
-```
-
-when they finish using a shared computer.
-
----
-
-# 📌 Current Limitations
-
-Depending on the current implementation, some functionality may require additional production hardening.
-
-Possible future improvements include:
-
-- More advanced mentor authentication
-- Session history
-- Support session analytics
-- Notifications
-- Multiple mentors per group
-- Multiple groups per mentor
-- Automatic RustDesk deep linking
-- Better credential protection
-- Redis-based Socket.IO scaling
-- Rate limiting
-- Audit logs
-- Automatic session expiration
-- Role-based permissions
-- Production monitoring
-
----
-
-# 🚀 Future Improvements
-
-The project can eventually evolve from a simple academy support tool into a complete remote-support platform.
-
-Potential architecture:
-
-```text
-                    ┌─────────────────┐
-                    │   Next.js Web   │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │    API Gateway  │
-                    └────────┬────────┘
-                             │
-             ┌───────────────┼───────────────┐
-             ▼               ▼               ▼
-        ┌─────────┐     ┌─────────┐     ┌─────────┐
-        │   Auth  │     │ Groups  │     │ Support │
-        │ Service │     │ Service │     │ Service │
-        └─────────┘     └─────────┘     └─────────┘
-                             │
-                       ┌─────▼─────┐
-                       │  MongoDB  │
-                       └───────────┘
-```
-
----
-
-# 🤝 Contributing
-
-Contributions are welcome.
-
-If you want to improve the project:
-
-1. Fork the repository
-2. Create a feature branch
-
-```bash
-git checkout -b feature/my-feature
-```
-
-3. Make your changes
-4. Commit them
-
-```bash
-git commit -m "feat: add my feature"
-```
-
-5. Push the branch
-
-```bash
-git push origin feature/my-feature
-```
-
-6. Open a Pull Request
-
----
-
-# 📄 License
-
-Add your preferred license here.
-
-For example:
-
-```text
-MIT License
-```
-
----
-
-# 💡 Why RustDesk x Academy?
-
-Remote technical support in an educational environment should not require students to understand complicated networking, authentication, or remote-desktop configuration.
-
-This project creates a bridge between the academy's support workflow and RustDesk:
-
-```text
-Student
-   ↓
-"I need help"
-   ↓
-Mentor
-   ↓
-"Connect"
-   ↓
-RustDesk
-   ↓
-Problem solved
-```
-
-The goal is simple:
-
-> **Make getting technical help as easy as pressing one button.**
-
----
-
-## 👨‍💻 Author
-
-Built as an academy support platform using modern web technologies and real-time communication.
-
-If you find the project useful, consider ⭐ starring the repository.
+- **CronJob added** to keep the server awake and prevent it from sleeping due to inactivity.
